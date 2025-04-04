@@ -1,0 +1,52 @@
+name: AI Auto Branch and Diff Summary
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  ai_auto_branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Get Last Commit Message
+        id: last_commit
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
+
+      - name: Create Branch if Feature Commit
+        if: contains(steps.last_commit.outputs.msg, 'feature:')
+        run: |
+          BRANCH_NAME="feature-$(date +%s)"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout -b $BRANCH_NAME
+          git push origin $BRANCH_NAME
+          echo "branch=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Get Diff
+        if: contains(steps.last_commit.outputs.msg, 'feature:')
+        run: |
+          git diff HEAD^ HEAD > diff.txt
+
+      - name: AI Summary via OpenAI (Requires API Key)
+        if: contains(steps.last_commit.outputs.msg, 'feature:')
+        run: |
+          curl https://api.openai.com/v1/chat/completions \
+          -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+                "model": "gpt-4",
+                "messages": [
+                  {"role": "system", "content": "You are a code assistant."},
+                  {"role": "user", "content": "Summarize this code change:\n'"$(cat diff.txt)"'"}
+                ]
+              }' > ai-summary.json
+
+      - name: Print AI Summary
+        if: contains(steps.last_commit.outputs.msg, 'feature:')
+        run: cat ai-summary.json
